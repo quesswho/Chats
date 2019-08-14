@@ -9,21 +9,27 @@ class Client {
 	const char* m_Ip;
 	const char* m_Port;
 
-	SOCKET client;
+	SOCKET server;
 public:
 	bool closed;
+	bool connected;
 
 	std::string serverLog;
+	std::string errorMsg;
 public:
 	Client();
 	~Client();
 
-	bool StartSession(const char* ip, const char* port);
+	bool Connect(const char* ip, const char* port);
 	void Disconnect();
 
 	bool Send(const char* message);
+
+	void ClearConsole() const;
 private:
 	bool Init();
+
+	void UpdateScreen();
 };
 
 namespace NetworkingUtils {

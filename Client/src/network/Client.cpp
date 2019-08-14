@@ -3,18 +3,19 @@
 #define DEFAULT_BUFLEN 512
 
 Client::Client()
-	: closed(true), client(INVALID_SOCKET)
+	: closed(true), server(INVALID_SOCKET), connected(false)
 {
 	if (Init()) {
 		std::cout << "Sucessfully initialized client!" << std::endl;
 		closed = false;
-	}
-
+		return;
+	} 
+	system("PAUSE");
 }
 
 Client::~Client()
 {
-	closesocket(client);
+	closesocket(server);
 	WSACleanup();
 	closed = true;
 }
@@ -32,7 +33,7 @@ bool Client::Init()
 	
 }
 
-bool Client::StartSession(const char* ip, const char* port) 
+bool Client::Connect(const char* ip, const char* port)
 {
 	m_Ip = ip;
 	m_Port = port;
@@ -45,29 +46,26 @@ bool Client::StartSession(const char* ip, const char* port)
 	hints.ai_flags = AI_PASSIVE;
 
 	// Setting addrinfo
-	int error = getaddrinfo(m_Ip, m_Port, &hints, &addrInfo);
-	if (error != 0) {
-		std::cout << "Error: " << error << " Failed to connect to ip: " << m_Ip << ":" << m_Port << std::endl;
-		WSACleanup();
-		return false;
-	}
+	getaddrinfo(m_Ip, m_Port, &hints, &addrInfo);
 
+	int error;
+	std::cout << "Connecting..." << std::endl;
 	for (ptr = addrInfo; ptr != NULL; ptr = ptr->ai_next) {
 
 		// Init socket
-		client = socket(ptr->ai_family, ptr->ai_socktype,
+		server = socket(ptr->ai_family, ptr->ai_socktype,
 			ptr->ai_protocol);
-		if (client == INVALID_SOCKET) {
+		if (server == INVALID_SOCKET) {
 			std::cout << "Failed to create socket: " << WSAGetLastError() << std::endl;
 			WSACleanup();
 			return false;
 		}
 
 		// Connect to server
-		error = connect(client, ptr->ai_addr, (int)ptr->ai_addrlen);
+		error = connect(server, ptr->ai_addr, (int)ptr->ai_addrlen);
 		if (error == SOCKET_ERROR) {
-			closesocket(client);
-			client = INVALID_SOCKET;
+			closesocket(server);
+			server = INVALID_SOCKET;
 			continue; //try again
 		}
 		break;
@@ -75,31 +73,112 @@ bool Client::StartSession(const char* ip, const char* port)
 
 	freeaddrinfo(addrInfo);
 
-	if (client == INVALID_SOCKET) {
+	if (server == INVALID_SOCKET) {
 		std::cout << "Failed to connect to server " << ip << ":" << port << std::endl;
-		WSACleanup();
+		errorMsg = std::string("Failed to connect to server: ").append(ip).append(":").append(port).append("\n");
+		//WSACleanup();
 		return false;
 	}
+	connected = true;
+
+	std::string msg = "";
+	char tempmsg[DEFAULT_BUFLEN] = "";
+	while (true)
+	{
+		memset(tempmsg, 0, DEFAULT_BUFLEN);
+
+		if (server != 0)
+		{
+			int error = recv(server, tempmsg, DEFAULT_BUFLEN, 0);
+			if (error != SOCKET_ERROR)
+			{
+					serverLog.append(tempmsg);
+					UpdateScreen();
+			}
+			else
+			{
+				msg = "Server has stopped!";
+				errorMsg.append(msg).append("\n");
+				serverLog = "";
+				connected = false;
+
+				break;
+			}
+		}
+	}
+	return false;
 }
 
 void Client::Disconnect()
 {
-	int error = shutdown(client, SD_SEND);
+	int error = shutdown(server, SD_SEND);
 	if (error == SOCKET_ERROR) {
 		std::cout << "Failed to disconnect" << WSAGetLastError() << std::endl;
-		closesocket(client);
+		closesocket(server);
 		WSACleanup();
 	}
+	connected = false;
 }
 
 bool Client::Send(const char* message)
 {
-	int error = send(client, message, (int)strlen(message), 0);
+	int error = send(server, message, (int)strlen(message), 0);
 	if (error == SOCKET_ERROR) {
 		std::cout << "Failed to send: " << WSAGetLastError();
-		closesocket(client);
+		closesocket(server);
 		WSACleanup();
-		return 1;
+		return false;
 	}
-	serverLog.append(message);
+	//serverLog.append(message);
+	//UpdateScreen();
+	return true;
+}
+
+void Client::UpdateScreen()
+{
+	if (connected)
+	{
+		ClearConsole();
+		std::cout << "Client: " << m_Ip << ":" << m_Port << std::endl;
+		SetConsoleTitle(std::string("Client: ").append(m_Ip).append(":").append(m_Port).c_str());
+		std::cout << serverLog.c_str() << std::endl;
+		Sleep(100);
+	}
+}
+
+void Client::ClearConsole() const
+{
+	HANDLE                     hStdOut;
+	CONSOLE_SCREEN_BUFFER_INFO csbi;
+	DWORD                      count;
+	DWORD                      cellCount;
+	COORD                      homeCoords = { 0, 0 };
+
+	hStdOut = GetStdHandle(STD_OUTPUT_HANDLE);
+	if (hStdOut == INVALID_HANDLE_VALUE) return;
+
+	/* Get the number of cells in the current buffer */
+	if (!GetConsoleScreenBufferInfo(hStdOut, &csbi)) return;
+	cellCount = csbi.dwSize.X *csbi.dwSize.Y;
+
+	/* Fill the entire buffer with spaces */
+	if (!FillConsoleOutputCharacter(
+		hStdOut,
+		(TCHAR) ' ',
+		cellCount,
+		homeCoords,
+		&count
+	)) return;
+
+	/* Fill the entire buffer with the current colors and attributes */
+	if (!FillConsoleOutputAttribute(
+		hStdOut,
+		csbi.wAttributes,
+		cellCount,
+		homeCoords,
+		&count
+	)) return;
+
+	/* Move the cursor home */
+	SetConsoleCursorPosition(hStdOut, homeCoords);
 }

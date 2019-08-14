@@ -8,12 +8,17 @@ Server::Server(const char* ip, const char* port)
 {
 	if (Init()) {
 		std::cout << "Sucessfully initialized server!" << std::endl;
-		closed = false;
+		Print();
 	}
 }
 
 Server::~Server()
 {
+	for (int i = 0; i < clientLimit; i++)
+	{
+		threads[i].detach();
+		closesocket(clients[i].socket);
+	}
 	closesocket(listeningSocket);
 	WSACleanup();
 	closed = true;
@@ -66,10 +71,20 @@ bool Server::Init()
 	freeaddrinfo(addrInfo);
 	closed = false;
 	serverLog = "";
+	return true;
 }
 
 void Server::Start(int clientlimit)
 {
+	clientLimit = clientlimit;
+	int i;
+	clients = new User[clientlimit];
+	threads = new std::thread[clientlimit];
+
+	for (i = 0; i < clientlimit; i++) {
+		clients[i].id = -1;
+		clients[i].socket = INVALID_SOCKET;
+	}
 	//Listen on ip and port
 	if (listen(listeningSocket, SOMAXCONN) == SOCKET_ERROR) {
 		std::cout << "Listen failed: " << WSAGetLastError() << std::endl;
@@ -80,16 +95,43 @@ void Server::Start(int clientlimit)
 
 	while (true)
 	{
-		client = accept(listeningSocket, NULL, NULL);
-		if (client == INVALID_SOCKET) continue; // no client was trying to connect
-		std::cout << "Client has connected!" << std::endl;
-		serverLog.append("Client has connected\n");
+		if (online == clientlimit) {
+#ifdef DEBUG
+			std::cout << "Server is full!" << std::endl;
+#endif
+			serverLog.append("Server is full!");
+
+			continue;
+		}
+
+
+		
+		SOCKET tempsocket = accept(listeningSocket, NULL, NULL);
+		if (tempsocket == INVALID_SOCKET) continue;
+
+		for (i = 0; i < clientlimit; i++)
+		{
+			//if (clients[i].id == -1 && clients[i].socket == INVALID_SOCKET) {
+			if (clients[i].id == -1) {
+				clients[i].id = i;
+				clients[i].socket = tempsocket;
+				break;
+			}
+		}
+
+		online++;
+#ifdef DEBUG
+		std::cout << "Client " << i << " has connected!" << std::endl;
+#endif
+		serverLog.append("Client ").append(std::to_string(i)).append(" has connected!\n");
+		SendAll(std::string("Client ").append(std::to_string(i)).append(" has connected!\n").c_str());
+
+		threads[i] = std::thread(&Server::ClientSession, this, clients[i]);
 		Beep(400, 500);
-		clientThread = std::thread(&Server::ClientSession, this, client);
 	}
 }
 
-void Server::ClientSession(SOCKET user)
+void Server::ClientSession(User client)
 {
 	std::string msg = "";
 	char tempmsg[DEFAULT_BUFLEN] = "";
@@ -98,33 +140,101 @@ void Server::ClientSession(SOCKET user)
 	{
 		memset(tempmsg, 0, DEFAULT_BUFLEN);
 
-		if (user != 0)
+		if (client.socket != 0)
 		{
-			int error = recv(user, tempmsg, DEFAULT_BUFLEN, 0);
+			int error = recv(client.socket, tempmsg, DEFAULT_BUFLEN, 0);
 			if (error != SOCKET_ERROR)
 			{
 				if (strcmp("", tempmsg)) {
-					msg = "Client: ";
-					msg.append(tempmsg).append("\n");
+					msg = std::string("Client ").append(std::to_string(client.id)).append(": ").append(tempmsg).append("\n");
+#ifdef DEBUG
+					std::cout << msg << std::endl;
+#endif
+					serverLog.append(msg);
+					SendAll(msg.c_str());
 				}
 
-				std::cout << msg.c_str() << std::endl;
-				serverLog.append(msg);
 			}
 			else
 			{
-				msg = "Client Disconnected";
-
+				msg = std::string("Client ").append(std::to_string(client.id)).append(" has disconnected");
+				online--;
 				std::cout << msg << std::endl;
 				serverLog.append(msg).append("\n");
+				clients[client.id].id = -1;
+				closesocket(clients[client.id].socket);
+				SendAll(msg.c_str());
 
-				closesocket(user);
 
 				break;
 			}
 		}
 	}
 
-	clientThread.detach();
+	threads[client.id].detach();
 	return;
+}
+
+bool Server::SendAll(const char* message)
+{
+	for (int i = 0; i < clientLimit; i++)
+	{
+		if (clients[i].id != -1 && clients[i].socket != INVALID_SOCKET)
+		{
+			int error = send(clients[i].socket, message, (int)strlen(message), 0);
+			if (error == SOCKET_ERROR) {
+				std::cout << "Failed to send to " << WSAGetLastError();
+				closesocket(clients[i].socket);
+				WSACleanup();
+			}
+		}
+	}
+	Print();
+	return true;
+}
+
+void Server::Print()
+{
+	ClearConsole();
+	std::cout << "Server: " << m_Ip << ":" << m_Port << std::endl;
+	std::cout << serverLog;
+	SetConsoleTitle(std::string("Server: ").append(m_Ip).append(":").append(m_Port).c_str());
+	Sleep(1000);
+}
+
+void Server::ClearConsole()
+{
+	HANDLE                     hStdOut;
+	CONSOLE_SCREEN_BUFFER_INFO csbi;
+	DWORD                      count;
+	DWORD                      cellCount;
+	COORD                      homeCoords = { 0, 0 };
+
+	hStdOut = GetStdHandle(STD_OUTPUT_HANDLE);
+	if (hStdOut == INVALID_HANDLE_VALUE) return;
+
+	/* Get the number of cells in the current buffer */
+	if (!GetConsoleScreenBufferInfo(hStdOut, &csbi)) return;
+	cellCount = csbi.dwSize.X *csbi.dwSize.Y;
+
+	/* Fill the entire buffer with spaces */
+	if (!FillConsoleOutputCharacter(
+		hStdOut,
+		(TCHAR) ' ',
+		cellCount,
+		homeCoords,
+		&count
+	)) return;
+
+	/* Fill the entire buffer with the current colors and attributes */
+	if (!FillConsoleOutputAttribute(
+		hStdOut,
+		csbi.wAttributes,
+		cellCount,
+		homeCoords,
+		&count
+	)) return;
+
+	/* Move the cursor home */
+	SetConsoleCursorPosition(hStdOut, homeCoords);
 }

@@ -6,12 +6,21 @@
 #include <ws2tcpip.h>
 #pragma comment(lib, "Ws2_32.lib")
 
+struct User {
+	SOCKET socket;
+	int id;
+};
+
 class Server {
 	const char* m_Ip;
 	const char* m_Port;
 	
 	SOCKET listeningSocket;
-	SOCKET client;
+	User* clients;
+	std::thread *threads;
+
+	int online;
+	int clientLimit;
 public:
 	bool closed;
 	std::string serverLog;
@@ -22,8 +31,10 @@ public:
 	void Start(int clientlimit);
 private:
 	bool Init();
-	void ClientSession(SOCKET user);
-	std::thread clientThread;
+	void ClientSession(User client);
+	bool SendAll(const char* message);
+	void Print();
+	void ClearConsole();
 };
 
 namespace NetworkingUtils {

@@ -5,22 +5,44 @@
 #define LOCALHOST "127.0.0.1"
 #define DEFAULT_PORT "79977"
 
-#define CLIENT_LIMIT
+#define CLIENT_LIMIT 5
+
+#define ClearConsole() system("cls")
 
 const char* ip_address;
 const char* port;
+
+void ChooseIpAndPort();
 
 int main() {
 	SetConsoleTitle("Server");
 
 	Server* server;
 
+	ChooseIpAndPort();
+
+	// Initialize server
+	server = new Server(ip_address, port);
+
+	std::thread listener(&Server::Start, server, CLIENT_LIMIT); //listen for joining users
+
+	while (!server->closed)
+	{
+		
+	}
+
+	listener.detach();
+}
+
+void ChooseIpAndPort()
+{
 	char* input1 = new char[14]; // 255.255.255.255 = 15 chars
 	char* input2 = new char[6];
 	char* inputyn = new char[0];
 	while (true)
 	{
-		system("cls"); //clear console
+		SetConsoleTitle("Server");
+		ClearConsole();
 		std::cout << "Please enter desired ip address." << std::endl;
 		std::cin >> input1;
 
@@ -29,7 +51,7 @@ int main() {
 		{
 			while (true)
 			{
-				system("cls"); //clear console
+				ClearConsole();
 				std::cout << input1 << " is not a valid ip address! Would you like to to use " << LOCALHOST << "? y/n" << std::endl;
 				std::cin >> inputyn;
 				if (inputyn[0] == 'y') {
@@ -45,7 +67,7 @@ int main() {
 		}
 		else if (inputyn[0] == 'y')
 			break;
-		else if(ip_address != LOCALHOST) {
+		else if (ip_address != LOCALHOST) {
 			ip_address = input1;
 			break;
 		}
@@ -53,7 +75,7 @@ int main() {
 
 	while (true)
 	{
-		system("cls"); //clear console
+		ClearConsole();
 		std::cout << "Please enter desired port." << std::endl;
 		std::cin >> input2;
 
@@ -62,7 +84,7 @@ int main() {
 		{
 			while (true)
 			{
-				system("cls"); //clear console
+				ClearConsole();
 				std::cout << input2 << " is not a valid port! Would you like to to use " << DEFAULT_PORT << "? y/n" << std::endl;
 				std::cin >> inputyn;
 				if (inputyn[0] == 'y') {
@@ -78,22 +100,9 @@ int main() {
 		}
 		else if (inputyn[0] == 'y')
 			break;
-		else if(port != DEFAULT_PORT) {
+		else if (port != DEFAULT_PORT) {
 			port = input2;
 			break;
 		}
-	}
-
-	// Initialize server
-	server = new Server(ip_address, port);
-	std::thread listener(&Server::Start, server, 5);
-
-	while (!server->closed)
-	{
-		system("cls");
-		std::cout << "Server: " << ip_address << ":" << port << std::endl;
-		std::cout << server->serverLog;
-		SetConsoleTitle(std::string("Server: ").append(ip_address).append(":").append(port).c_str());
-		Sleep(1000);
 	}
 }
