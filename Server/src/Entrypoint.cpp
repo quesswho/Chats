@@ -1,37 +1,70 @@
 #include <iostream>
+#ifdef __WIN32__
 #include <thread>
+#else
+#include <pthread.h>
+#endif
 #include "network/Server.h"
+#include <string.h>
 
-#define LOCALHOST "127.0.0.1"
-#define DEFAULT_PORT "79977"
+const char* LOCALHOST = "127.0.0.1";
+const char* DEFAULT_PORT = "79977";
 
-#define CLIENT_LIMIT 5
+const int CLIENT_LIMIT = 5;
 
+#ifdef __WIN32__
 #define ClearConsole() system("cls")
+#else
+#define ClearConsole() system("clear");
+#endif
+
 
 const char* ip_address;
 const char* port;
 
+Server* server;
+
 void ChooseIpAndPort();
+void SetTitle(const char* title);
+
+struct startargs {
+	int limit;
+};
+
+void *Start(void* args)
+{
+	server->Start(args);
+	return NULL;
+}
 
 int main() {
-	SetConsoleTitle("Server");
-
-	Server* server;
+	
+	
+	
 
 	ChooseIpAndPort();
 
 	// Initialize server
 	server = new Server(ip_address, port);
 
+#ifdef __WIN32__
 	std::thread listener(&Server::Start, server, CLIENT_LIMIT); //listen for joining users
-
+#else
+	pthread_t listener;
+	startargs args;
+	args.limit = 5;
+	
+	pthread_create(&listener, NULL, &Server, (void*) &args);
+#endif
 	while (!server->closed)
 	{
 		
 	}
-
+#ifdef __WIN32__
 	listener.detach();
+#else
+	pthread_cancel(listener);
+	#endif
 }
 
 void ChooseIpAndPort()
@@ -41,7 +74,7 @@ void ChooseIpAndPort()
 	char* inputyn = new char[0];
 	while (true)
 	{
-		SetConsoleTitle("Server");
+		SetTitle("Server");
 		ClearConsole();
 		std::cout << "Please enter desired ip address." << std::endl;
 		std::cin >> input1;
@@ -105,4 +138,13 @@ void ChooseIpAndPort()
 			break;
 		}
 	}
+}
+
+inline void SetTitle(const char* title)
+{
+	#ifdef __WIN32__
+	SetConsoleTitle("title");
+	#else
+	std::cout << "\033]0;" << title << "\007";
+	#endif
 }

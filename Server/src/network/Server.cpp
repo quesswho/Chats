@@ -14,6 +14,7 @@ Server::Server(const char* ip, const char* port)
 
 Server::~Server()
 {
+	#ifdef __WIN32__
 	for (int i = 0; i < clientLimit; i++)
 	{
 		threads[i].detach();
@@ -21,11 +22,20 @@ Server::~Server()
 	}
 	closesocket(listeningSocket);
 	WSACleanup();
+	#else
+	for (int i = 0; i < clientLimit; i++)
+	{
+		threads[i].detach();
+		shutdown(clients[i].socket, SHUT_RDWR);
+	}
+	shutdown(listeningSocket, SHUT_RDWR);
+	#endif
 	closed = true;
 }
 
 bool Server::Init()
 {
+	#ifdef __WIN32__
 	WSADATA wsaData;
 	//init Winsock
 	int error = WSAStartup(MAKEWORD(2, 2), &wsaData);
@@ -69,19 +79,42 @@ bool Server::Init()
 		return false;
 	}
 	freeaddrinfo(addrInfo);
+	#else
+	listeningSocket = socket(AF_INET, SOCK_STREAM, 0);
+	if(listeningSocket < 0)
+	{
+		std::cout << "Failed to create listening socket!" << std::endl;
+		return false;
+	}
+	struct sockaddr_in addrInfo;
+	memset((char*) &addrInfo, 0, sizeof(addrInfo));
+	addrInfo.sin_family = AF_INET;
+	addrInfo.sin_addr.s_addr = inet_addr(m_Ip);
+	addrInfo.sin_port = htons(atoi(m_Port)); // from char* to int with host byte order to network byte order
+	if(bind(listeningSocket, (struct sockaddr *) &addrInfo, sizeof(addrInfo)) < 0)
+	{
+		std::cout << "Error: Failed to bind ip: " << m_Ip << ":" << m_Port << std::endl;
+	}
+		
+	#endif
 	closed = false;
 	serverLog = "";
 	return true;
 }
-
+#ifdef __WIN32__
 void Server::Start(int clientlimit)
+#else
+void *Server::Start(void *arg)
+#endif
 {
-	clientLimit = clientlimit;
+	
+	clientLimit = *((int *) arg);
 	int i;
-	clients = new User[clientlimit];
-	threads = new std::thread[clientlimit];
+	clients = new User[clientLimit];
+	threads = new std::thread[clientLimit];
 
-	for (i = 0; i < clientlimit; i++) {
+#ifdef __WIN32__
+	for (i = 0; i < clientLimit; i++) {
 		clients[i].id = -1;
 		clients[i].socket = INVALID_SOCKET;
 	}
@@ -92,10 +125,22 @@ void Server::Start(int clientlimit)
 		WSACleanup();
 		return;
 	}
+#else
+	for (i = 0; i < clientLimit; i++) {
+		clients[i].id = -1;
+		clients[i].socket = -1;
+	}
+	//Listen on ip and port
+	if (listen(listeningSocket, 5) < 0) {
+		std::cout << "Listen failed: " << errno << std::endl;
+		shutdown(listeningSocket, SHUT_RDWR);
+		return 0;
+	}
+#endif
 
 	while (true)
 	{
-		if (online == clientlimit) {
+		if (online == clientLimit) {
 #ifdef DEBUG
 			std::cout << "Server is full!" << std::endl;
 #endif
@@ -105,19 +150,31 @@ void Server::Start(int clientlimit)
 		}
 
 
-		
+		#ifdef __WIN32__
 		SOCKET tempsocket = accept(listeningSocket, NULL, NULL);
 		if (tempsocket == INVALID_SOCKET) continue;
 
 		for (i = 0; i < clientlimit; i++)
 		{
-			//if (clients[i].id == -1 && clients[i].socket == INVALID_SOCKET) {
 			if (clients[i].id == -1) {
 				clients[i].id = i;
 				clients[i].socket = tempsocket;
 				break;
 			}
 		}
+		#else
+		int tempsocket = accept(listeningSocket, (struct sockaddr *) NULL, NULL); //Check here first
+		if(tempsocket < 0) continue;
+		
+		for (i = 0; i < clientLimit; i++)
+		{
+			if (clients[i].id == -1) {
+				clients[i].id = i;
+				clients[i].socket = tempsocket;
+				break;
+			}
+		}
+		#endif
 
 		online++;
 #ifdef DEBUG
@@ -127,7 +184,6 @@ void Server::Start(int clientlimit)
 		SendAll(std::string("Client ").append(std::to_string(i)).append(" has connected!\n").c_str());
 
 		threads[i] = std::thread(&Server::ClientSession, this, clients[i]);
-		Beep(400, 500);
 	}
 }
 
@@ -140,11 +196,17 @@ void Server::ClientSession(User client)
 	{
 		memset(tempmsg, 0, DEFAULT_BUFLEN);
 
-		if (client.socket != 0)
+		if (client.socket != 0 && !(client.socket < 0))
 		{
+			#ifdef __WIN32__
 			int error = recv(client.socket, tempmsg, DEFAULT_BUFLEN, 0);
 			if (error != SOCKET_ERROR)
 			{
+			#else
+			int error = recv(client.socket, tempmsg, DEFAULT_BUFLEN, 0);
+			if(error != -1)
+			{
+			#endif
 				if (strcmp("", tempmsg)) {
 					msg = std::string("Client ").append(std::to_string(client.id)).append(": ").append(tempmsg).append("\n");
 #ifdef DEBUG
@@ -162,7 +224,11 @@ void Server::ClientSession(User client)
 				std::cout << msg << std::endl;
 				serverLog.append(msg).append("\n");
 				clients[client.id].id = -1;
+				#ifdef __WIN32__
 				closesocket(clients[client.id].socket);
+				#else
+				shutdown(clients[client.id].socket, SHUT_RDWR);
+				#endif
 				SendAll(msg.c_str());
 
 
@@ -179,6 +245,7 @@ bool Server::SendAll(const char* message)
 {
 	for (int i = 0; i < clientLimit; i++)
 	{
+		#ifdef __WIN32__
 		if (clients[i].id != -1 && clients[i].socket != INVALID_SOCKET)
 		{
 			int error = send(clients[i].socket, message, (int)strlen(message), 0);
@@ -188,6 +255,16 @@ bool Server::SendAll(const char* message)
 				WSACleanup();
 			}
 		}
+		#else
+		if (clients[i].id != -1 && clients[i].socket != -1)
+		{
+			int error = send(clients[i].socket, message, (int)strlen(message), 0);
+			if (error < 0) {
+				std::cout << "Failed to send to " << errno;
+				shutdown(clients[i].socket, SHUT_RDWR);
+			}
+		}
+		#endif
 	}
 	Print();
 	return true;
@@ -198,12 +275,12 @@ void Server::Print()
 	ClearConsole();
 	std::cout << "Server: " << m_Ip << ":" << m_Port << std::endl;
 	std::cout << serverLog;
-	SetConsoleTitle(std::string("Server: ").append(m_Ip).append(":").append(m_Port).c_str());
-	Sleep(1000);
+//	SetTitle(std::string("Server: ").append(m_Ip).append(":").append(m_Port).c_str());
 }
 
 void Server::ClearConsole()
 {
+	#ifdef __WIN32__
 	HANDLE                     hStdOut;
 	CONSOLE_SCREEN_BUFFER_INFO csbi;
 	DWORD                      count;
@@ -237,4 +314,16 @@ void Server::ClearConsole()
 
 	/* Move the cursor home */
 	SetConsoleCursorPosition(hStdOut, homeCoords);
+	#else
+	std::cout << "\033[2J\033[1;1H";
+	#endif
+}
+
+void SetTitle(const char* title)
+{
+	#ifdef __WIN32__
+	SetConsoleTitle("title");
+	#else
+	std::cout << "\033]0;" << title << "\007";
+	#endif
 }

@@ -907,3 +907,6 @@ _deps
 *.exe
 *.out
 *.app
+
+# Codelite
+.codelite/
