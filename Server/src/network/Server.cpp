@@ -103,12 +103,14 @@ bool Server::Init()
 }
 #ifdef __WIN32__
 void Server::Start(int clientlimit)
+{
+	clientLimit = clientlimit;
 #else
 void *Server::Start(void *arg)
-#endif
 {
-	
 	clientLimit = *((int *) arg);
+#endif
+	
 	int i;
 	clients = new User[clientLimit];
 	threads = new std::thread[clientLimit];
@@ -322,7 +324,7 @@ void Server::ClearConsole()
 void SetTitle(const char* title)
 {
 	#ifdef __WIN32__
-	SetConsoleTitle("title");
+	SetConsoleTitle(title);
 	#else
 	std::cout << "\033]0;" << title << "\007";
 	#endif

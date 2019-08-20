@@ -1,10 +1,10 @@
+#include "network/Server.h"
 #include <iostream>
-#ifdef __WIN32__
+#if defined(__WIN32__)
 #include <thread>
 #else
 #include <pthread.h>
 #endif
-#include "network/Server.h"
 #include <string.h>
 
 const char* LOCALHOST = "127.0.0.1";
@@ -25,22 +25,21 @@ const char* port;
 Server* server;
 
 void ChooseIpAndPort();
-void SetTitle(const char* title);
+void _SetTitle(const char* title);
 
 struct startargs {
 	int limit;
 };
 
+#ifndef __WIN32__
 void *Start(void* args)
 {
 	server->Start(args);
 	return NULL;
 }
+#endif
 
 int main() {
-	
-	
-	
 
 	ChooseIpAndPort();
 
@@ -74,7 +73,7 @@ void ChooseIpAndPort()
 	char* inputyn = new char[0];
 	while (true)
 	{
-		SetTitle("Server");
+		_SetTitle("Server");
 		ClearConsole();
 		std::cout << "Please enter desired ip address." << std::endl;
 		std::cin >> input1;
@@ -140,10 +139,10 @@ void ChooseIpAndPort()
 	}
 }
 
-inline void SetTitle(const char* title)
+inline void _SetTitle(const char* title)
 {
 	#ifdef __WIN32__
-	SetConsoleTitle("title");
+	SetConsoleTitle(title);
 	#else
 	std::cout << "\033]0;" << title << "\007";
 	#endif

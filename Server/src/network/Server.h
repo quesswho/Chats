@@ -1,5 +1,11 @@
 #pragma once
+
+#if defined(_WIN32) || defined(__WIN32) && !defined(__CYGWIN__)
+#define __WIN32__
+#endif
+
 #include <cstring>
+#include <string>
 #include <thread>
 
 #ifdef __WIN32__
@@ -40,7 +46,7 @@ public:
 	bool closed;
 	std::string serverLog;
 public:
-	Server(const char* ip, const char* port);
+	explicit Server(const char* ip, const char* port);
 	~Server();
 
 	#ifdef __WIN32__
